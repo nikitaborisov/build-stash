@@ -166,9 +166,9 @@ class TestMainValidation:
         err = capsys.readouterr().err
         assert "invalid dir name" in err
 
-    def test_cli_rejects_missing_directory(self, tmp_path, capsys):
+    def test_cli_rejects_missing_work_dir(self, tmp_path, capsys):
         missing = tmp_path / "nope"
-        rc = main([str(missing)])
+        rc = main(["-d", str(missing)])
         assert rc == 1
         assert "not a directory" in capsys.readouterr().err
 
@@ -177,23 +177,30 @@ class TestParseArgs:
     def test_defaults(self, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)
         args, _ = parse_args([])
-        assert args.dir_names is None
+        assert args.dir_names == []
         assert args.dry_run is False
         assert args.quiet is False
-        assert args.path == str(tmp_path)
+        assert args.work_dir == str(tmp_path)
 
     def test_custom_flags(self, tmp_path):
         project = tmp_path / "proj"
         project.mkdir()
-        args, _ = parse_args(["-n", "-q", "-c", "/tmp/cache", "-d", "build", str(project)])
+        args, _ = parse_args(["-n", "-q", "-c", "/tmp/cache", "-d", str(project), "build"])
         assert args.dry_run is True
         assert args.quiet is True
         assert args.cache_root == "/tmp/cache"
         assert args.dir_names == ["build"]
-        assert args.path == str(project)
+        assert args.work_dir == str(project)
 
 
-class TestModuleEntrypoint:
+    def test_work_dir_and_positional_dir_names(self, tmp_path, cache_root):
+        work_dir = tmp_path / "foo"
+        work_dir.mkdir()
+        rc = main(["-c", str(cache_root), "-d", str(work_dir), "bar"])
+        assert rc == 0
+        linked = work_dir / "bar"
+        assert linked.is_symlink()
+        assert os.path.isdir(os.readlink(linked))
     def test_module_runs(self, project, cache_root, monkeypatch):
         monkeypatch.setenv("PYTHONPATH", str(Path(__file__).resolve().parents[1]))
         result = subprocess.run(
@@ -203,6 +210,7 @@ class TestModuleEntrypoint:
                 "build_stash",
                 "-c",
                 str(cache_root),
+                "-d",
                 str(project),
             ],
             capture_output=True,

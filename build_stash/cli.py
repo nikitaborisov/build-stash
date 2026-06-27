@@ -176,16 +176,16 @@ def parse_args(argv):
         description="Redirect build-output directories into a local cache and "
                     "replace the originals with symlinks.",
     )
-    p.add_argument("-d", dest="dir_names", action="append", metavar="DIRNAME",
-                   help="Build dir name to relink. Repeatable. Default: target.")
+    p.add_argument("-d", dest="work_dir", default=os.getcwd(), metavar="DIR",
+                   help="Working directory (default: current directory).")
     p.add_argument("-c", dest="cache_root", default=default_cache, metavar="CACHE_ROOT",
                    help="Local cache root.")
     p.add_argument("-n", dest="dry_run", action="store_true", help="Dry run.")
     p.add_argument("-q", dest="quiet", action="store_true",
                    help="Quiet — do not print link actions.")
     p.add_argument("-h", dest="help", action="store_true", help="Help.")
-    p.add_argument("path", nargs="?", default=os.getcwd(),
-                   help="Directory to operate on (default: current directory).")
+    p.add_argument("dir_names", nargs="*", metavar="DIRNAME",
+                   help="Build dir names to relink (default: target).")
     return p.parse_args(argv), p
 
 
@@ -199,7 +199,7 @@ def main(argv=None):
 
     dir_names = args.dir_names or ["target"]
 
-    src_base = args.path
+    src_base = args.work_dir
     if not os.path.isdir(src_base):
         print(f"{PROG}: error: not a directory: {src_base}", file=sys.stderr)
         return 1

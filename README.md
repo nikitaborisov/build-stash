@@ -45,13 +45,13 @@ python -m build_stash [options] [PATH]
 ## Usage
 
 ```
-build-stash [-n] [-q] [-c CACHE_ROOT] [-d DIRNAME]... [PATH]
+build-stash [-n] [-q] [-c CACHE_ROOT] [-d DIR] [DIRNAME]...
 ```
 
 | Flag | Description |
 |------|-------------|
-| `PATH` | Directory to operate on (default: current directory) |
-| `-d DIRNAME` | Build dir name to relink; repeatable (default: `target`) |
+| `-d DIR` | Working directory (default: current directory) |
+| `DIRNAME` | Build dir name(s) to relink (default: `target`) |
 | `-c CACHE_ROOT` | Local cache root (default: `${XDG_CACHE_HOME:-~/.cache}/build-redirect`) |
 | `-n` | Dry run — print actions, change nothing |
 | `-q` | Quiet — do not print link actions |
@@ -75,13 +75,13 @@ build-stash -n
 Redirect multiple build dirs:
 
 ```bash
-build-stash -d target -d build -d node_modules ~/Dropbox/dev/my-app
+build-stash -d ~/Dropbox/dev/my-app target build node_modules
 ```
 
 Use a custom cache location:
 
 ```bash
-build-stash -c ~/.cache/my-builds ~/Dropbox/dev/my-app
+build-stash -c ~/.cache/my-builds -d ~/Dropbox/dev/my-app
 ```
 
 ## How it works
