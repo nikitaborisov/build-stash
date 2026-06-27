@@ -8,7 +8,7 @@ Cloud sync on large, churn-heavy build artifacts is slow, expensive, and sometim
 
 ## Install
 
-Requires Python 3.10+.
+Requires Python 3.9+.
 
 **Recommended** — install as an isolated CLI with [pipx](https://pipx.pypa.io/):
 

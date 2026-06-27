@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 #
 # build-stash — Redirect build-output directories (target/, build/, ...) out
 # of a cloud-synced tree (Dropbox/Box/etc.) into a local cache under $HOME, then
