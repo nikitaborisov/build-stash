@@ -11,3 +11,9 @@ requires-python = ">=3.9"
 
 [project.scripts]
 build-stash = "build_stash.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
