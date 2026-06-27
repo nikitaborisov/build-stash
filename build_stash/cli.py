@@ -10,149 +10,167 @@ import os
 import re
 import shutil
 import sys
+from dataclasses import dataclass
+from pathlib import Path
 
 PROG = "build-stash"
 
 
 class AppError(Exception):
-    """Fatal error -> message on stderr, exit 1 (mirrors bash die)."""
+    """Fatal error -> message on stderr, exit 1."""
 
 
-def warn(msg):
+def warn(msg: str) -> None:
     print(f"{PROG}: warning: {msg}", file=sys.stderr)
 
 
+@dataclass
 class Relinker:
-    def __init__(self, cache_root, dir_names, src_base, dry_run, quiet):
-        self.cache_root = cache_root
-        self.dir_names = dir_names
-        self.src_base = src_base
-        self.dry_run = dry_run
-        self.quiet = quiet
+    cache_root: Path
+    dir_names: list[str]
+    src_base: Path
+    dry_run: bool = False
+    quiet: bool = False
 
-    def info(self, msg):
+    def info(self, msg: str) -> None:
         if not self.quiet:
             print(f"{PROG}: {msg}", file=sys.stderr)
 
-    def run(self, description, action):
-        """Execute action() unless dry-run, in which case just describe it."""
-        if self.dry_run:
-            print(f"[dry-run] {description}", file=sys.stderr)
-        else:
-            action()
+    def _dry_run(self, msg: str) -> None:
+        print(f"[dry-run] {msg}", file=sys.stderr)
 
-    # --- hashing helper ---------------------------------------------------
-    # Deterministic short hash of a path, used to namespace the cache.
+    def _ensure_dir(self, path: Path) -> None:
+        if self.dry_run:
+            self._dry_run(f"create directory {path}")
+        else:
+            path.mkdir(parents=True, exist_ok=True)
+
+    def _remove_symlink(self, path: Path) -> None:
+        if self.dry_run:
+            self._dry_run(f"remove symlink {path}")
+        else:
+            path.unlink()
+
+    def _create_symlink(self, link: Path, target: Path) -> None:
+        if self.dry_run:
+            self._dry_run(f"symlink {link} -> {target}")
+        else:
+            link.symlink_to(target)
+
     @staticmethod
-    def path_hash(s):
+    def path_hash(s: str) -> str:
         return hashlib.sha256(s.encode()).hexdigest()[:12]
 
-    # Build a human-readable, collision-resistant cache name for a source dir.
-    def cache_dest_for(self, src):
-        proj = os.path.basename(os.path.dirname(src))  # project dir name
-        base = os.path.basename(src)                   # e.g. target
-        # sanitize project name for filesystem friendliness
-        proj = re.sub(r"[^A-Za-z0-9._-]", "_", proj)
-        return os.path.join(self.cache_root, f"{proj}-{base}-{self.path_hash(src)}")
+    def cache_dest_for(self, src: Path) -> Path:
+        proj = re.sub(r"[^A-Za-z0-9._-]", "_", src.parent.name)
+        return self.cache_root / f"{proj}-{src.name}-{self.path_hash(str(src))}"
 
-    # --- core -------------------------------------------------------------
-    def relink_one(self, name):
-        src = os.path.join(self.src_base, name)
+    def _symlink_points_into_cache(self, target: Path) -> bool:
+        if target.is_absolute():
+            return target.is_relative_to(self.cache_root)
+        try:
+            return target.resolve().is_relative_to(self.cache_root.resolve())
+        except OSError:
+            return False
+
+    def relink_one(self, name: str) -> None:
+        src = self.src_base / name
         dest = self.cache_dest_for(src)
 
-        # Case 1: already a symlink.
-        if os.path.islink(src):
-            cur = os.readlink(src)
-            if cur == dest:
-                self.info(f"{name}: already linked correctly -> {dest}")
-                return
-            # Points somewhere else. Only re-point if it's into our cache root.
-            if cur.startswith(self.cache_root + os.sep):
-                warn(f"{name}: symlink points to {cur}, re-pointing to {dest}")
-                self.run(f"mkdir -p {dest}", lambda: os.makedirs(dest, exist_ok=True))
-                self.run(f"rm {src}", lambda: os.unlink(src))
-                self.run(f"ln -s {dest} {src}", lambda: os.symlink(dest, src))
-            else:
-                warn(f"{name}: existing symlink -> {cur} is outside cache root; "
-                     "leaving untouched")
-            return
-
-        # Case 2: a real directory — move contents into cache, replace with symlink.
-        if os.path.isdir(src):
-            self.run(f"mkdir -p {dest}", lambda: os.makedirs(dest, exist_ok=True))
-            if self.dry_run:
-                print(f"[dry-run] migrate {src} -> {dest}, then symlink",
-                      file=sys.stderr)
-                return
-            # Move contents into dest (merge), preserving anything already cached.
-            self._migrate_contents(name, src, dest)
-            try:
-                os.symlink(dest, src)
-            except OSError as e:
-                raise AppError(f"{name}: failed to create symlink: {e}")
-            self.info(f"{name}: migrated and linked -> {dest}")
-            return
-
-        # Case 3: exists but not a dir/symlink.
-        if os.path.exists(src):
+        if src.is_symlink():
+            self._relink_existing_symlink(name, src, dest)
+        elif src.is_dir():
+            self._relink_existing_directory(name, src, dest)
+        elif src.exists():
             warn(f"{name}: exists but is not a directory or symlink; skipping")
-            return
+        else:
+            self._relink_missing(name, src, dest)
 
-        # Case 4: doesn't exist — create cache + link proactively.
-        self.run(f"mkdir -p {dest}", lambda: os.makedirs(dest, exist_ok=True))
-        self.run(f"ln -s {dest} {src}", lambda: os.symlink(dest, src))
+    def _relink_existing_symlink(self, name: str, src: Path, dest: Path) -> None:
+        current = src.readlink()
+        if current == dest:
+            self.info(f"{name}: already linked correctly -> {dest}")
+            return
+        if self._symlink_points_into_cache(current):
+            warn(f"{name}: symlink points to {current}, re-pointing to {dest}")
+            self._ensure_dir(dest)
+            self._remove_symlink(src)
+            self._create_symlink(src, dest)
+        else:
+            warn(
+                f"{name}: existing symlink -> {current} is outside cache root; "
+                "leaving untouched"
+            )
+
+    def _relink_existing_directory(self, name: str, src: Path, dest: Path) -> None:
+        self._ensure_dir(dest)
+        if self.dry_run:
+            self._dry_run(f"migrate {src} -> {dest}, then symlink {src} -> {dest}")
+            return
+        self._migrate_contents(name, src, dest)
+        try:
+            src.symlink_to(dest)
+        except OSError as e:
+            raise AppError(f"{name}: failed to create symlink: {e}") from e
+        self.info(f"{name}: migrated and linked -> {dest}")
+
+    def _relink_missing(self, name: str, src: Path, dest: Path) -> None:
+        self._ensure_dir(dest)
+        self._create_symlink(src, dest)
         self.info(f"{name}: created and linked -> {dest}")
 
     @staticmethod
-    def _migrate_contents(name, src, dest):
+    def _migrate_contents(name: str, src: Path, dest: Path) -> None:
         """Merge-move contents of src into dest, then remove src."""
         try:
-            for entry in os.listdir(src):
-                s = os.path.join(src, entry)
-                d = os.path.join(dest, entry)
-                if os.path.exists(d) or os.path.islink(d):
-                    # Destination already has this entry; merge dirs, replace files.
-                    if os.path.isdir(s) and not os.path.islink(s) \
-                            and os.path.isdir(d) and not os.path.islink(d):
-                        Relinker._merge_dir(s, d)
+            for entry in src.iterdir():
+                target = dest / entry.name
+                if target.exists() or target.is_symlink():
+                    if (
+                        entry.is_dir()
+                        and not entry.is_symlink()
+                        and target.is_dir()
+                        and not target.is_symlink()
+                    ):
+                        Relinker._merge_dir(entry, target)
                         continue
-                    if os.path.isdir(d) and not os.path.islink(d):
-                        shutil.rmtree(d)
+                    if target.is_dir() and not target.is_symlink():
+                        shutil.rmtree(target)
                     else:
-                        os.unlink(d)
-                shutil.move(s, d)
+                        target.unlink()
+                shutil.move(entry, target)
         except OSError as e:
-            raise AppError(f"{name}: failed migrating contents to {dest}: {e}")
-        # remove now-empty source tree
+            raise AppError(f"{name}: failed migrating contents to {dest}: {e}") from e
         try:
             shutil.rmtree(src)
         except OSError as e:
-            raise AppError(f"{name}: cleanup failed: {e}")
+            raise AppError(f"{name}: cleanup failed: {e}") from e
 
     @staticmethod
-    def _merge_dir(s, d):
-        for entry in os.listdir(s):
-            ss = os.path.join(s, entry)
-            dd = os.path.join(d, entry)
-            if (os.path.exists(dd) or os.path.islink(dd)) and \
-                    os.path.isdir(ss) and not os.path.islink(ss) and \
-                    os.path.isdir(dd) and not os.path.islink(dd):
-                Relinker._merge_dir(ss, dd)
+    def _merge_dir(src: Path, dest: Path) -> None:
+        for entry in src.iterdir():
+            target = dest / entry.name
+            if (
+                (target.exists() or target.is_symlink())
+                and entry.is_dir()
+                and not entry.is_symlink()
+                and target.is_dir()
+                and not target.is_symlink()
+            ):
+                Relinker._merge_dir(entry, target)
             else:
-                if os.path.exists(dd) or os.path.islink(dd):
-                    if os.path.isdir(dd) and not os.path.islink(dd):
-                        shutil.rmtree(dd)
+                if target.exists() or target.is_symlink():
+                    if target.is_dir() and not target.is_symlink():
+                        shutil.rmtree(target)
                     else:
-                        os.unlink(dd)
-                shutil.move(ss, dd)
-        os.rmdir(s)
+                        target.unlink()
+                shutil.move(entry, target)
+        src.rmdir()
 
-    def main(self):
-        self.run(f"mkdir -p {self.cache_root}",
-                 lambda: os.makedirs(self.cache_root, exist_ok=True))
+    def main(self) -> int:
+        self._ensure_dir(self.cache_root)
         rc = 0
         for name in self.dir_names:
-            # Disallow nested/absolute names; these are simple basenames.
             if name.startswith("/") or "/" in name:
                 warn(f"skipping invalid dir name: {name}")
                 rc = 1
@@ -165,31 +183,50 @@ class Relinker:
         return rc
 
 
-def parse_args(argv):
-    default_cache = os.path.join(
-        os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache"),
-        "build-redirect",
-    )
+def _default_cache_root() -> Path:
+    cache_home = os.environ.get("XDG_CACHE_HOME")
+    base = Path(cache_home) if cache_home else Path.home() / ".cache"
+    return base / "build-redirect"
+
+
+def parse_args(argv: list[str] | None = None):
     p = argparse.ArgumentParser(
         prog=PROG,
         add_help=False,
         description="Redirect build-output directories into a local cache and "
-                    "replace the originals with symlinks.",
+        "replace the originals with symlinks.",
     )
-    p.add_argument("-d", dest="work_dir", default=os.getcwd(), metavar="DIR",
-                   help="Working directory (default: current directory).")
-    p.add_argument("-c", dest="cache_root", default=default_cache, metavar="CACHE_ROOT",
-                   help="Local cache root.")
+    p.add_argument(
+        "-d",
+        dest="work_dir",
+        default=Path.cwd(),
+        metavar="DIR",
+        type=Path,
+        help="Working directory (default: current directory).",
+    )
+    p.add_argument(
+        "-c",
+        dest="cache_root",
+        default=_default_cache_root(),
+        metavar="CACHE_ROOT",
+        type=Path,
+        help="Local cache root.",
+    )
     p.add_argument("-n", dest="dry_run", action="store_true", help="Dry run.")
-    p.add_argument("-q", dest="quiet", action="store_true",
-                   help="Quiet — do not print link actions.")
+    p.add_argument(
+        "-q", dest="quiet", action="store_true", help="Quiet — do not print link actions."
+    )
     p.add_argument("-h", dest="help", action="store_true", help="Help.")
-    p.add_argument("dir_names", nargs="*", metavar="DIRNAME",
-                   help="Build dir names to relink (default: target).")
+    p.add_argument(
+        "dir_names",
+        nargs="*",
+        metavar="DIRNAME",
+        help="Build dir names to relink (default: target).",
+    )
     return p.parse_args(argv), p
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     args, parser = parse_args(argv)
 
@@ -199,15 +236,14 @@ def main(argv=None):
 
     dir_names = args.dir_names or ["target"]
 
-    src_base = args.work_dir
-    if not os.path.isdir(src_base):
-        print(f"{PROG}: error: not a directory: {src_base}", file=sys.stderr)
-        return 1
-    # Absolute, symlink-resolved base.
     try:
-        src_base = os.path.realpath(src_base)
+        src_base = args.work_dir.resolve()
     except OSError:
-        print(f"{PROG}: error: cannot resolve: {src_base}", file=sys.stderr)
+        print(f"{PROG}: error: cannot resolve: {args.work_dir}", file=sys.stderr)
+        return 1
+
+    if not src_base.is_dir():
+        print(f"{PROG}: error: not a directory: {args.work_dir}", file=sys.stderr)
         return 1
 
     relinker = Relinker(

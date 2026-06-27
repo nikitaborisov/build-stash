@@ -7,7 +7,7 @@ name = "build-stash"
 version = "0.1.0"
 description = "Redirect build-output directories out of cloud-synced trees into a local cache via symlinks"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 
 [project.scripts]
 build-stash = "build_stash.cli:main"

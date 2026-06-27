@@ -1,4 +1,5 @@
-- change arguments so that -d is the working directory (not .) and positional args are the directories to link. I.e., build-stash -d foo bar should link foo/bar to the cache, rather than bar/foo as it currently does
-- support unlinking of the directory and cleaning the corresponding cache
-- track the origin of the symlink in a dot file in .cache so that we can find where we removed the original and so we need to clean the cache
-- consider what happens when we rename the directory 
+- [x] change arguments so that -d is the working directory (not .) and positional args are the directories to link. I.e., build-stash -d foo bar should link foo/bar to the cache, rather than bar/foo as it currently does
+- [x] minimize the use of shell commands
+- [ ] support unlinking of the directory and cleaning the corresponding cache
+- [ ] track the origin of the symlink in a dot file in .cache so that we can find where we removed the original and so we need to clean the cache
+- [ ] consider what happens when we rename the directory 

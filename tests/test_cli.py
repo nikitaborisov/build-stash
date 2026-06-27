@@ -1,4 +1,3 @@
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -23,9 +22,9 @@ def cache_root(tmp_path):
 
 def make_relinker(cache_root, project, *, dry_run=False, quiet=False, dir_names=None):
     return Relinker(
-        cache_root=str(cache_root),
+        cache_root=Path(cache_root),
         dir_names=dir_names or ["target"],
-        src_base=str(project),
+        src_base=Path(project),
         dry_run=dry_run,
         quiet=quiet,
     )
@@ -34,21 +33,21 @@ def make_relinker(cache_root, project, *, dry_run=False, quiet=False, dir_names=
 class TestCacheDest:
     def test_cache_dest_is_deterministic(self, project, cache_root):
         relinker = make_relinker(cache_root, project)
-        src = str(project / "target")
+        src = project / "target"
         assert relinker.cache_dest_for(src) == relinker.cache_dest_for(src)
 
     def test_cache_dest_includes_project_and_dir_name(self, project, cache_root):
         relinker = make_relinker(cache_root, project)
-        dest = relinker.cache_dest_for(str(project / "target"))
-        assert dest.startswith(str(cache_root))
-        assert "my-rust-crate-target-" in os.path.basename(dest)
+        dest = relinker.cache_dest_for(project / "target")
+        assert dest.is_relative_to(cache_root)
+        assert "my-rust-crate-target-" in dest.name
 
     def test_cache_dest_sanitizes_project_name(self, tmp_path, cache_root):
         project = tmp_path / "weird name!"
         project.mkdir()
         relinker = make_relinker(cache_root, project)
-        dest = relinker.cache_dest_for(str(project / "build"))
-        assert "weird_name_-build-" in os.path.basename(dest)
+        dest = relinker.cache_dest_for(project / "build")
+        assert "weird_name_-build-" in dest.name
 
 
 class TestRelinkOne:
@@ -61,9 +60,9 @@ class TestRelinkOne:
 
         target = project / "target"
         assert target.is_symlink()
-        dest = os.readlink(target)
-        assert dest == relinker.cache_dest_for(str(target))
-        assert os.path.isdir(dest)
+        dest = target.readlink()
+        assert dest == relinker.cache_dest_for(target)
+        assert dest.is_dir()
 
     def test_migrates_existing_directory(self, project, cache_root):
         target = project / "target"
@@ -76,9 +75,8 @@ class TestRelinkOne:
         assert relinker.main() == 0
 
         assert target.is_symlink()
-        dest = Path(os.readlink(target))
+        dest = target.readlink()
         assert (dest / "debug" / "my-app").read_text() == "built"
-        assert not (project / "target" / "debug").exists() or target.is_symlink()
 
     def test_idempotent_when_already_linked(self, project, cache_root, capsys):
         relinker = make_relinker(cache_root, project)
@@ -86,9 +84,9 @@ class TestRelinkOne:
         assert relinker.main() == 0
 
         target = project / "target"
-        first_dest = os.readlink(target)
+        first_dest = target.readlink()
         assert relinker.main() == 0
-        assert os.readlink(target) == first_dest
+        assert target.readlink() == first_dest
 
         err = capsys.readouterr().err
         assert err.count("already linked correctly ->") == 2
@@ -100,15 +98,15 @@ class TestRelinkOne:
 
     def test_repairs_symlink_within_cache_root(self, project, cache_root):
         relinker = make_relinker(cache_root, project)
-        correct_dest = relinker.cache_dest_for(str(project / "target"))
-        os.makedirs(correct_dest, exist_ok=True)
+        correct_dest = relinker.cache_dest_for(project / "target")
+        correct_dest.mkdir(parents=True, exist_ok=True)
 
-        stale_dest = os.path.join(str(cache_root), "stale-target")
-        os.makedirs(stale_dest, exist_ok=True)
+        stale_dest = cache_root / "stale-target"
+        stale_dest.mkdir(parents=True, exist_ok=True)
         (project / "target").symlink_to(stale_dest)
 
         assert relinker.main() == 0
-        assert os.readlink(project / "target") == correct_dest
+        assert (project / "target").readlink() == correct_dest
 
     def test_leaves_external_symlink_untouched(self, project, cache_root):
         external = project / "elsewhere"
@@ -117,7 +115,7 @@ class TestRelinkOne:
 
         relinker = make_relinker(cache_root, project)
         assert relinker.main() == 0
-        assert os.readlink(project / "target") == str(external)
+        assert (project / "target").readlink() == external
 
     def test_skips_non_directory_file(self, project, cache_root, capsys):
         (project / "target").write_text("not a dir")
@@ -154,7 +152,7 @@ class TestRelinkOne:
         for name in ("target", "build"):
             path = project / name
             assert path.is_symlink()
-            dest = Path(os.readlink(path))
+            dest = path.readlink()
             if name == "build":
                 assert (dest / "output").read_text() == "x"
 
@@ -180,7 +178,7 @@ class TestParseArgs:
         assert args.dir_names == []
         assert args.dry_run is False
         assert args.quiet is False
-        assert args.work_dir == str(tmp_path)
+        assert args.work_dir == Path(tmp_path)
 
     def test_custom_flags(self, tmp_path):
         project = tmp_path / "proj"
@@ -188,9 +186,9 @@ class TestParseArgs:
         args, _ = parse_args(["-n", "-q", "-c", "/tmp/cache", "-d", str(project), "build"])
         assert args.dry_run is True
         assert args.quiet is True
-        assert args.cache_root == "/tmp/cache"
+        assert args.cache_root == Path("/tmp/cache")
         assert args.dir_names == ["build"]
-        assert args.work_dir == str(project)
+        assert args.work_dir == project
 
 
     def test_work_dir_and_positional_dir_names(self, tmp_path, cache_root):
@@ -200,7 +198,8 @@ class TestParseArgs:
         assert rc == 0
         linked = work_dir / "bar"
         assert linked.is_symlink()
-        assert os.path.isdir(os.readlink(linked))
+        assert linked.readlink().is_dir()
+
     def test_module_runs(self, project, cache_root, monkeypatch):
         monkeypatch.setenv("PYTHONPATH", str(Path(__file__).resolve().parents[1]))
         result = subprocess.run(
