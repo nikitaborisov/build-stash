@@ -1,23 +1,8 @@
 #!/usr/bin/env python3
 #
-# build-stash.py — Redirect build-output directories (target/, build/, ...) out
+# build-stash — Redirect build-output directories (target/, build/, ...) out
 # of a cloud-synced tree (Dropbox/Box/etc.) into a local cache under $HOME, then
 # replace the originals with symlinks. Idempotent and safe to re-run.
-#
-# Usage:
-#   build-stash.py [-n] [-v] [-c CACHE_ROOT] [-d DIRNAME]... [PATH]
-#
-#   PATH            Directory to operate on (default: current directory).
-#   -d DIRNAME      Build dir name to relink. Repeatable. Default: target.
-#                   e.g. -d target -d build -d node_modules
-#   -c CACHE_ROOT   Local cache root (default: ${XDG_CACHE_HOME:-$HOME/.cache}/build-redirect).
-#   -n              Dry run; print what would happen, change nothing.
-#   -v              Verbose.
-#   -h              Help.
-#
-# The cache location for each dir is derived deterministically from the absolute
-# source path (so re-runs map to the same place), namespaced by a path hash to
-# avoid collisions between like-named dirs in different projects.
 
 import argparse
 import hashlib
@@ -26,7 +11,7 @@ import re
 import shutil
 import sys
 
-PROG = os.path.basename(sys.argv[0])
+PROG = "build-stash"
 
 
 class AppError(Exception):
@@ -232,7 +217,3 @@ def main(argv=None):
         verbose=args.verbose,
     )
     return relinker.main()
-
-
-if __name__ == "__main__":
-    sys.exit(main())
