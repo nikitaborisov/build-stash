@@ -23,15 +23,15 @@ def warn(msg):
 
 
 class Relinker:
-    def __init__(self, cache_root, dir_names, src_base, dry_run, verbose):
+    def __init__(self, cache_root, dir_names, src_base, dry_run, quiet):
         self.cache_root = cache_root
         self.dir_names = dir_names
         self.src_base = src_base
         self.dry_run = dry_run
-        self.verbose = verbose
+        self.quiet = quiet
 
     def info(self, msg):
-        if self.verbose:
+        if not self.quiet:
             print(f"{PROG}: {msg}", file=sys.stderr)
 
     def run(self, description, action):
@@ -181,7 +181,8 @@ def parse_args(argv):
     p.add_argument("-c", dest="cache_root", default=default_cache, metavar="CACHE_ROOT",
                    help="Local cache root.")
     p.add_argument("-n", dest="dry_run", action="store_true", help="Dry run.")
-    p.add_argument("-v", dest="verbose", action="store_true", help="Verbose.")
+    p.add_argument("-q", dest="quiet", action="store_true",
+                   help="Quiet — do not print link actions.")
     p.add_argument("-h", dest="help", action="store_true", help="Help.")
     p.add_argument("path", nargs="?", default=os.getcwd(),
                    help="Directory to operate on (default: current directory).")
@@ -214,6 +215,6 @@ def main(argv=None):
         dir_names=dir_names,
         src_base=src_base,
         dry_run=args.dry_run,
-        verbose=args.verbose,
+        quiet=args.quiet,
     )
     return relinker.main()

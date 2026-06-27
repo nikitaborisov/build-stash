@@ -21,13 +21,13 @@ def cache_root(tmp_path):
     return tmp_path / "cache"
 
 
-def make_relinker(cache_root, project, *, dry_run=False, verbose=False, dir_names=None):
+def make_relinker(cache_root, project, *, dry_run=False, quiet=False, dir_names=None):
     return Relinker(
         cache_root=str(cache_root),
         dir_names=dir_names or ["target"],
         src_base=str(project),
         dry_run=dry_run,
-        verbose=verbose,
+        quiet=quiet,
     )
 
 
@@ -52,9 +52,12 @@ class TestCacheDest:
 
 
 class TestRelinkOne:
-    def test_creates_symlink_when_missing(self, project, cache_root):
+    def test_creates_symlink_when_missing(self, project, cache_root, capsys):
         relinker = make_relinker(cache_root, project)
         assert relinker.main() == 0
+
+        err = capsys.readouterr().err
+        assert "created and linked ->" in err
 
         target = project / "target"
         assert target.is_symlink()
@@ -77,7 +80,7 @@ class TestRelinkOne:
         assert (dest / "debug" / "my-app").read_text() == "built"
         assert not (project / "target" / "debug").exists() or target.is_symlink()
 
-    def test_idempotent_when_already_linked(self, project, cache_root):
+    def test_idempotent_when_already_linked(self, project, cache_root, capsys):
         relinker = make_relinker(cache_root, project)
         assert relinker.main() == 0
         assert relinker.main() == 0
@@ -86,6 +89,14 @@ class TestRelinkOne:
         first_dest = os.readlink(target)
         assert relinker.main() == 0
         assert os.readlink(target) == first_dest
+
+        err = capsys.readouterr().err
+        assert err.count("already linked correctly ->") == 2
+
+    def test_quiet_suppresses_link_messages(self, project, cache_root, capsys):
+        relinker = make_relinker(cache_root, project, quiet=True)
+        assert relinker.main() == 0
+        assert "created and linked ->" not in capsys.readouterr().err
 
     def test_repairs_symlink_within_cache_root(self, project, cache_root):
         relinker = make_relinker(cache_root, project)
@@ -168,14 +179,15 @@ class TestParseArgs:
         args, _ = parse_args([])
         assert args.dir_names is None
         assert args.dry_run is False
+        assert args.quiet is False
         assert args.path == str(tmp_path)
 
     def test_custom_flags(self, tmp_path):
         project = tmp_path / "proj"
         project.mkdir()
-        args, _ = parse_args(["-n", "-v", "-c", "/tmp/cache", "-d", "build", str(project)])
+        args, _ = parse_args(["-n", "-q", "-c", "/tmp/cache", "-d", "build", str(project)])
         assert args.dry_run is True
-        assert args.verbose is True
+        assert args.quiet is True
         assert args.cache_root == "/tmp/cache"
         assert args.dir_names == ["build"]
         assert args.path == str(project)

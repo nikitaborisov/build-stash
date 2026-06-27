@@ -45,7 +45,7 @@ python -m build_stash [options] [PATH]
 ## Usage
 
 ```
-build-stash [-n] [-v] [-c CACHE_ROOT] [-d DIRNAME]... [PATH]
+build-stash [-n] [-q] [-c CACHE_ROOT] [-d DIRNAME]... [PATH]
 ```
 
 | Flag | Description |
@@ -54,7 +54,7 @@ build-stash [-n] [-v] [-c CACHE_ROOT] [-d DIRNAME]... [PATH]
 | `-d DIRNAME` | Build dir name to relink; repeatable (default: `target`) |
 | `-c CACHE_ROOT` | Local cache root (default: `${XDG_CACHE_HOME:-~/.cache}/build-redirect`) |
 | `-n` | Dry run — print actions, change nothing |
-| `-v` | Verbose |
+| `-q` | Quiet — do not print link actions |
 | `-h` | Help |
 
 ### Examples
@@ -69,7 +69,7 @@ build-stash
 Preview first:
 
 ```bash
-build-stash -n -v
+build-stash -n
 ```
 
 Redirect multiple build dirs:
